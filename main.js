@@ -23,7 +23,6 @@ bot.once('inject_allowed', () => {
 	mcLectern = mcData.blocksByName["lectern"];
 })
 
-
 bot.on('spawn', () => {
 	console.log('\x1b[36m%s\x1b[0m', '====================================================================='); //cyan
 	console.log('\x1b[36m%s\x1b[0m', 'Successfully Spawned into the world'); //cyan
