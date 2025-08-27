@@ -1,6 +1,6 @@
 const mineflayer = require('mineflayer')
-const {Vec3} = require('vec3')
-const { mineflayer: mineflayerViewer } = require('prismarine-viewer')
+const { Vec3 } = require('vec3')
+// const { mineflayer: mineflayerViewer } = require('prismarine-viewer')
 let mcData
 let mcLectern
 let bruh = false
@@ -14,7 +14,7 @@ console.log("Creating Bot and attemting to join world")
 const bot = mineflayer.createBot({
 	host: process.argv[2],
 	port: parseInt(process.argv[3]),
-	username: process.argv[4] ? process.argv[4] : 'trader', 
+	username: process.argv[4] ? process.argv[4] : 'trader',
 	password: process.argv[5]
 })
 
@@ -27,7 +27,7 @@ bot.on('spawn', () => {
 	console.log('\x1b[36m%s\x1b[0m', '====================================================================='); //cyan
 	console.log('\x1b[36m%s\x1b[0m', 'Successfully Spawned into the world'); //cyan
 	console.log('\x1b[36m%s\x1b[0m', '====================================================================='); //cyan
-	mineflayerViewer(bot, { port: 8080, firstPerson: true }) // port is the minecraft server port, if first person is false, you get a bird's-eye view
+	// mineflayerViewer(bot, { port: 8080, firstPerson: true }) // port is the minecraft server port, if first person is false, you get a bird's-eye view
 })
 
 bot.on('chat', (username, message) => {
@@ -36,7 +36,7 @@ bot.on('chat', (username, message) => {
 	switch (true) {
 
 		case command[0] === 'get':
-		bot.chat("Finding Your Book for you!")
+			bot.chat("Finding Your Book for you!")
 			master(command[1], command[2])
 			break
 
@@ -55,63 +55,77 @@ bot.on('chat', (username, message) => {
 })
 
 async function master(wantedBookName, wantedBookLevel) {
-	
-	console.log('\x1b[36m%s\x1b[0m', '===========================Waiting On Villager=============================');
-	while(!await getVillagerStatus()) {
-		await sleep(50)
-	}
-
-	await checkForBook(wantedBookName, wantedBookLevel)
-	if(bruh) {
-		bruh = false
-		console.log('\x1b[32m%s\x1b[0m', "----------------------------Book Match Found!---------------------------") //green
-		bot.chat("Book Found!")
-		attemptTrade(wantedBookName, wantedBookLevel)
-		return
-	} 
-	else {
-		if(checkLecturnStock()) {
-			await resetVillagerTrades()	
-		} 
-		else {
-			bot.chat("Out of Stock. Unable to Continue")
-			console.log('\x1b[31m%s\x1b[0m', 'OUT OF STOCK, PLEASE REFILL LECTURNES AND TRY AGAIN'); 
+	while (true) {
+		console.log("Locating Villager");
+		while (!await getVillagerStatus()) {
+			await sleep(50)
+		}
+		
+		console.log("Checking Villager Trades");
+		let bookFound = await checkForBook(wantedBookName, wantedBookLevel)
+		if (bookFound) {
+			console.log('\x1b[32m%s\x1b[0m', "----------------------------Book Match Found!---------------------------") //green
+			bot.chat("Book Found!")
+			attemptTrade(wantedBookName, wantedBookLevel)
 			return
 		}
+
+		if (!checkLecturnStock()) {
+			bot.chat("Out of Stock. Unable to Continue")
+			console.log('\x1b[31m%s\x1b[0m', 'OUT OF STOCK, PLEASE REFILL LECTURNES AND TRY AGAIN');
+			return
+		}
+
+		let success = await resetVillagerTrades();
+		if (!success) {
+			return
+		}
+
+
 	}
 
 	master(wantedBookName, wantedBookLevel)
 }
+async function getVillagerStatus() {
+	const villagers = Object.values(bot.entities)
+		.filter(e => e.entityType === mcData.entitiesByName.villager.id)
+		.filter(e => bot.entity.position.distanceTo(e.position) < 5);
 
-function getVillagerStatus() {
-	let villagers = Object.keys(bot.entities).map(id => bot.entities[id]).filter(e => e.entityType === mcData.entitiesByName.villager.id).filter(e => bot.entity.position.distanceTo(e.position) < 5)
-	if(villagers[0].metadata.at(-1).villagerProfession != 9) { 
-		return false
-	}
-	return true
+	if (villagers.length === 0) return false;
+
+	const villager = villagers[0];
+	if (!villager.metadata[18]) return false
+
+	const profession = villager.metadata[18].villagerProfession;
+	return profession === 9;
 }
 
 async function checkForBook(wantedBookName, wantedBookLevel) {
 	let villagers = Object.keys(bot.entities).map(id => bot.entities[id]).filter(e => e.entityType === mcData.entitiesByName.villager.id).filter(e => bot.entity.position.distanceTo(e.position) < 5)
 
 	const villager = await bot.openVillager(villagers[0])
-	console.log('\x1b[35m%s\x1b[0m', '=============================Looking For Book=============================='); //magenta
+
+	let bookFound = false
 
 	villager.trades.forEach((trade, index) => {
-		console.log("=============================Slot " + (index + 1) + "===============================")
+		console.log(trade)
+		console.log("Checking Slot " + (index + 1))
+		return
 		if (trade.outputItem.name == 'enchanted_book') {
-			const bookLvl = trade.outputItem.nbt.value.StoredEnchantments.value.value[0].lvl.value
-			const bookId = trade.outputItem.nbt.value.StoredEnchantments.value.value[0].id.value
-			console.log('\x1b[32m%s\x1b[0m', "book Found!: " + bookId + " " + bookLvl + "in slot " + (index + 1)) //green
+
+			const book = trade.outputItem.components[0].data.enchantments[0]
+			const bookLvl = book.level
+			const bookId = book.id
+			console.log("Book found in slot " + (index + 1) + ": " + bookId + " " + bookLvl )
 
 			if (wantedBookName.toLowerCase() == bookId.toLowerCase()) {
 				console.log('\x1b[32m%s\x1b[0m', "Book Type Matches!") //green
-				if(wantedBookLevel == bookLvl) {
+				if (wantedBookLevel == bookLvl) {
 					villager.close()
 					console.log('\x1b[32m%s\x1b[0m', "Book level Matches!") //green
 					console.log('\x1b[35m%s\x1b[0m', '==========================================================================='); //magenta
-					bruh = true
-					return true
+					bookFound = true
+					return
 				} else {
 					console.log('\x1b[38;2;186;96;0m%s\x1b[0m', "Book level does not match") //orange
 				}
@@ -119,44 +133,63 @@ async function checkForBook(wantedBookName, wantedBookLevel) {
 				console.log('\x1b[38;2;186;96;0m%s\x1b[0m', "Book does not match") //orange
 			}
 		} else {
-			console.log('\x1b[38;2;186;96;0m%s\x1b[0m', "no book found in slot" + (index + 1)) //orange
+			console.log('\x1b[38;2;186;96;0m%s\x1b[0m', "No book found in slot" + (index + 1)) //orange
 		}
 	})
 
-	console.log('\x1b[35m%s\x1b[0m', '==========================================================================='); //magenta
-	villager.close()
-	return false
+	return bookFound
 }
 
 async function resetVillagerTrades() {
-	console.log('\x1b[34m%s\x1b[0m', '=============================Resetting Trades=============================='); //magenta
+	console.log('Finding lectern');
 	let block = bot.findBlock({
 		matching: mcLectern.id,
 		maxDistance: 5,
 	});
-	console.log('Lecturn Found at ', block.position)
+	if (!block) {
+		console.error('Failed to find lectern');
+		bot.chat("Unable to reset villagers profession. Aborting...")
+		return false
+	}
+
+	console.log('Lectern Found at ', block.position)
 	bot.setQuickBarSlot(0)
+
+	console.log('Breaking lectern');
 	await bot.dig(block, forceLook = true)
-	console.log("Lecturn Broken")
-	await sleep(100)
+
+	await sleep(1000)
 
 	bot.setQuickBarSlot(1)
-	let reference = bot.blockAt(block.position.offset(-1, 0, 0))
-	await bot.placeBlock(reference, new Vec3(1, 0, 0))
-	console.log("Lecturn Replaced")
 
-	console.log('\x1b[34m%s\x1b[0m', '==========================================================================='); //magenta
+	new Promise(async (resolve, reject) => {
+		try {
+			console.log("Replacing lectern")
+
+			await bot.placeBlock(block, new Vec3(1, 0, 0))
+		} catch (err) {
+			if (err.message.includes('Event') && err.message.includes('did not fire within timeout')) {
+				console.log('Timeout error occured.');
+				resolve();
+			} else {
+				console.log(err);
+				reject();
+			}
+		}
+	})
+
+	return true
 }
 
 function checkLecturnStock() {
 	let inventory = bot.inventory
-	if(inventory.slots[37].count <= 1 ) return false
-	if(inventory.slots[37].name != "lectern") return false
+	if (inventory.slots[37] == null) return false
+	if (inventory.slots[37].name != "lectern") return false
 	return true
 }
 
 function attemptTrade(wantedBookName, wantedBookLevel) {
-	
+
 	console.log("test")
 }
 

@@ -9,7 +9,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "mineflayer": "^3.11.2",
-    "prismarine-viewer": "^1.23.0"
+    "mineflayer": "^4.0.0",
+    "prismarine-viewer": "^1.33.0"
   }
 }
