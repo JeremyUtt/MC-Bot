@@ -1,3 +1,4 @@
+const MinecraftData = require('minecraft-data')
 const mineflayer = require('mineflayer')
 const { Vec3 } = require('vec3')
 // const { mineflayer: mineflayerViewer } = require('prismarine-viewer')
@@ -37,7 +38,13 @@ bot.on('chat', (username, message) => {
 
 		case command[0] === 'get':
 			bot.chat("Finding Your Book for you!")
-			master(command[1], command[2])
+			try{
+				master(command[1], command[2])
+			} catch(err){
+				console.error(err)
+				console.log("Critical Error. Aborting")
+				bot.chat("Critical Error. Aborting")
+			}
 			break
 
 		case command[0] === 'debug':
@@ -57,36 +64,41 @@ bot.on('chat', (username, message) => {
 async function master(wantedBookName, wantedBookLevel) {
 	while (true) {
 		console.log("Locating Villager");
-		while (!await getVillagerStatus()) {
+		let villager = await getVillager()
+		while (!villager) {
 			await sleep(50)
+			villager = await getVillager()
 		}
-		
+
+
 		console.log("Checking Villager Trades");
-		let bookFound = await checkForBook(wantedBookName, wantedBookLevel)
-		if (bookFound) {
-			console.log('\x1b[32m%s\x1b[0m', "----------------------------Book Match Found!---------------------------") //green
-			bot.chat("Book Found!")
+		if (await checkForBook(villager, wantedBookName, wantedBookLevel)) {
+			console.log('Book Match Found!')
+			bot.chat("Book Match Found!")
 			attemptTrade(wantedBookName, wantedBookLevel)
 			return
 		}
 
-		if (!checkLecturnStock()) {
-			bot.chat("Out of Stock. Unable to Continue")
-			console.log('\x1b[31m%s\x1b[0m', 'OUT OF STOCK, PLEASE REFILL LECTURNES AND TRY AGAIN');
+		console.log('Book not found. Checking lectern stock')
+		if (!checkLecternStock()) {
+			bot.chat("Out of lectern. Unable to Continue")
+			console.log("Out of lectern. Unable to Continue")
 			return
 		}
 
+
+		console.log('Resetting villager trades')
 		let success = await resetVillagerTrades();
 		if (!success) {
+			bot.chat('Unable to regenerate trades. Aborting...')
+			console.log('Unable to regenerate trades. Aborting...')
 			return
 		}
 
 
 	}
-
-	master(wantedBookName, wantedBookLevel)
 }
-async function getVillagerStatus() {
+async function getVillager() {
 	const villagers = Object.values(bot.entities)
 		.filter(e => e.entityType === mcData.entitiesByName.villager.id)
 		.filter(e => bot.entity.position.distanceTo(e.position) < 5);
@@ -97,28 +109,36 @@ async function getVillagerStatus() {
 	if (!villager.metadata[18]) return false
 
 	const profession = villager.metadata[18].villagerProfession;
-	return profession === 9;
+	if (profession !== 9) return false
+
+	return villager
 }
 
-async function checkForBook(wantedBookName, wantedBookLevel) {
-	let villagers = Object.keys(bot.entities).map(id => bot.entities[id]).filter(e => e.entityType === mcData.entitiesByName.villager.id).filter(e => bot.entity.position.distanceTo(e.position) < 5)
+async function checkForBook(villagerEntity, wantedBookName, wantedBookLevel) {
 
-	const villager = await bot.openVillager(villagers[0])
+	const villager = await bot.openVillager(villagerEntity)
+	if (!villager) {
+		console.log("sdrfdsgdsf")
+		return false
+	}
+
 
 	let bookFound = false
 
 	villager.trades.forEach((trade, index) => {
-		console.log(trade)
-		console.log("Checking Slot " + (index + 1))
-		return
+		// console.log("Checking Slot " + (index + 1))
+		// console.log(JSON.stringify(trade))
+
 		if (trade.outputItem.name == 'enchanted_book') {
 
 			const book = trade.outputItem.components[0].data.enchantments[0]
 			const bookLvl = book.level
 			const bookId = book.id
-			console.log("Book found in slot " + (index + 1) + ": " + bookId + " " + bookLvl )
+			const bookName = mcData.enchantmentsArray[bookId].name
 
-			if (wantedBookName.toLowerCase() == bookId.toLowerCase()) {
+
+			bot.chat("Current Book: " + bookName + " " + bookLvl)
+			if (wantedBookName.toLowerCase() == bookName.toLowerCase()) {
 				console.log('\x1b[32m%s\x1b[0m', "Book Type Matches!") //green
 				if (wantedBookLevel == bookLvl) {
 					villager.close()
@@ -127,13 +147,16 @@ async function checkForBook(wantedBookName, wantedBookLevel) {
 					bookFound = true
 					return
 				} else {
-					console.log('\x1b[38;2;186;96;0m%s\x1b[0m', "Book level does not match") //orange
+					// console.log('\x1b[38;2;186;96;0m%s\x1b[0m', "Book level does not match") //orange
 				}
 			} else {
-				console.log('\x1b[38;2;186;96;0m%s\x1b[0m', "Book does not match") //orange
+				// console.log('\x1b[38;2;186;96;0m%s\x1b[0m', "Book does not match") //orange
 			}
 		} else {
-			console.log('\x1b[38;2;186;96;0m%s\x1b[0m', "No book found in slot" + (index + 1)) //orange
+			// console.log('\x1b[38;2;186;96;0m%s\x1b[0m', "No book found in slot" + (index + 1)) //orange\
+			if (index == 1) {
+				bot.chat("Current Book: None")
+			}
 		}
 	})
 
@@ -141,35 +164,26 @@ async function checkForBook(wantedBookName, wantedBookLevel) {
 }
 
 async function resetVillagerTrades() {
-	console.log('Finding lectern');
 	let block = bot.findBlock({
 		matching: mcLectern.id,
 		maxDistance: 5,
 	});
 	if (!block) {
-		console.error('Failed to find lectern');
-		bot.chat("Unable to reset villagers profession. Aborting...")
 		return false
 	}
 
-	console.log('Lectern Found at ', block.position)
 	bot.setQuickBarSlot(0)
-
-	console.log('Breaking lectern');
 	await bot.dig(block, forceLook = true)
 
-	await sleep(1000)
+	await sleep(100)
 
 	bot.setQuickBarSlot(1)
 
 	new Promise(async (resolve, reject) => {
 		try {
-			console.log("Replacing lectern")
-
 			await bot.placeBlock(block, new Vec3(1, 0, 0))
 		} catch (err) {
 			if (err.message.includes('Event') && err.message.includes('did not fire within timeout')) {
-				console.log('Timeout error occured.');
 				resolve();
 			} else {
 				console.log(err);
@@ -177,11 +191,12 @@ async function resetVillagerTrades() {
 			}
 		}
 	})
-
+	
+	await sleep(100) // Hopefully the block is actually placed by the time this sleep is over ;)
 	return true
 }
 
-function checkLecturnStock() {
+function checkLecternStock() {
 	let inventory = bot.inventory
 	if (inventory.slots[37] == null) return false
 	if (inventory.slots[37].name != "lectern") return false
@@ -189,8 +204,7 @@ function checkLecturnStock() {
 }
 
 function attemptTrade(wantedBookName, wantedBookLevel) {
-
-	console.log("test")
+	console.log("Trade Stub Here")
 }
 
 function sleep(ms) {
